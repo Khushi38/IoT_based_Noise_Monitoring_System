@@ -1,0 +1,63 @@
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SimpleTimer.h>
+char auth[] = "8PqczJySOKDqPc6mGhyzQEL3S25eoCk0";
+char ssid[] = "Prashanth";
+char pass[] = "hot spot";
+
+SimpleTimer timer;
+const int sampleWindow = 50;                             
+unsigned int sample;
+#define SENSOR_PIN A0
+
+void setup ()  
+{   
+  pinMode (SENSOR_PIN, INPUT);
+  Serial.begin(115200);
+  Blynk.begin(auth, ssid, pass);
+  timer.setInterval(1000L,soundsensorvalue); 
+  //should run every 1000 milliseconds, (which is 1 second). 
+}  
+ 
+void loop ()  
+{
+  Blynk.run();
+  timer.run(); 
+}
+
+void soundsensorvalue()
+{
+  long measurement2 =loudness();
+  Serial.println(measurement2);
+  Blynk.virtualWrite(V3, measurement2);
+  if( measurement2>90 ){
+  Blynk.notify("Loudness is HIGH!!"); 
+  }
+}
+
+int loudness()
+{ 
+   unsigned long startMillis= millis();                   // Start of sample window
+   float peakToPeak = 0;                                  // peak-to-peak level
+   unsigned int signalMax = 0;                            // minimum value
+   unsigned int signalMin = 1024;                         // maximum value
+   while (millis() - startMillis < sampleWindow)          // collect data for 50 mS
+   {
+      sample = analogRead(SENSOR_PIN);                    // get reading from microphone
+      if (sample < 1024)                                  // toss out spurious readings
+      {
+         if (sample > signalMax)
+         {
+            signalMax = sample;                           // save just the max levels
+         }
+         else if (sample < signalMin)
+         {
+            signalMin = sample;                           // save just the min levels
+         }
+      }
+   }
+   peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
+   int db = map(peakToPeak,20,900,49.5,90);               // calibrate for deciBels
+   return db;
+}
