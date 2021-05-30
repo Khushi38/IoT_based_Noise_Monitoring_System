@@ -1,0 +1,58 @@
+#include "arduinoFFT.h"
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SimpleTimer.h>
+#define SENSOR_PIN A0
+
+char auth[] = "OWDqJY79cbp8MrES5Ew8Akpcmo2_K5gm";
+char ssid[] = "Prashanth";
+char pass[] = "hot spot";
+
+arduinoFFT FFT = arduinoFFT();
+const int samples = 64; //This value MUST ALWAYS be a power of 2
+const double samplingFrequency = 5000; //Shouls be higher than Nyquest frequency
+SimpleTimer timer;
+String sdata="";
+
+double vReal[samples]; //vector of size 64 to hold real input values
+double vImag[samples]; //vector of size 64 to hold imagenary input values
+
+void setup() 
+{
+    Serial.begin(115200); //Baud rate for the Serial Monitor
+    pinMode(SENSOR_PIN ,INPUT); 
+    Blynk.begin(auth, ssid, pass);
+    timer.setInterval(1500,soundsensorvalue);  
+}
+void loop ()  
+{
+  Blynk.run();
+  timer.run(); 
+}
+void soundsensorvalue()
+{
+  long measurement =freqsensorvalue();
+  //Serial.println(measurement);
+  sdata = sdata + "Frequency: " + measurement;  
+  Blynk.virtualWrite(V2, sdata);
+  sdata = ""; 
+}
+
+
+double freqsensorvalue(){
+//Number of signal cycles that the sampling will read
+for (int i = 0; i < samples; i++)
+{
+  vReal[i] = analogRead(0);
+  vImag[i] = 0.0; 
+  //Imaginary part must be zeroed in case of looping to avoid wrong calculations and overflows
+}
+
+FFT.Windowing(vReal, samples, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+FFT.Compute(vReal, vImag, samples, FFT_FORWARD);
+FFT.ComplexToMagnitude(vReal, vImag, samples);
+double x = FFT.MajorPeak(vReal, samples, samplingFrequency);
+Serial.print("Freq:");Serial.println(x, 6);
+return x;
+}
