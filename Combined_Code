@@ -1,0 +1,163 @@
+//libraries
+#include "arduinoFFT.h"
+#include <TinyGPS++.h>
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SimpleTimer.h>
+
+#define SENSOR_PIN A0
+//project code, Wifi nae and password
+char auth[] = "bQJNosAr3gIbrThCE_JeIqI8aD7AKUGt";
+char ssid[] = "Prashanth";
+char pass[] = "hot spot";
+
+SimpleTimer timer;
+/*vibration/bass*/
+int vs = D0; // vibration sensor 
+int data = 0; // sensor data will be stored in this variable.
+
+/*GPS*/
+static const int RXPin = 4, TXPin = 5;   // GPIO 4=D2(conneect Tx of GPS) and GPIO 5=D1(Connect Rx of GPS), follow GPIO name convention
+
+/*loudness and frequency*/
+#define SENSOR_PIN A0
+const int sampleWindow = 50;                             
+unsigned int sample;
+arduinoFFT FFT = arduinoFFT();
+unsigned int sampling_period_us; //sampling period in micro sec
+unsigned long microseconds;
+const int samples = 64; //This value MUST ALWAYS be a power of 2
+const double samplingFrequency = 5000; //Shouls be higher than Nyquest frequency
+String sdata="";
+double vReal[samples]; //vector of size 64 to hold real input values
+double vImag[samples]; //vector of size 64 to hold imagenary input values
+
+
+//setup function
+void setup()
+{
+  Serial.begin(115200);
+  pinMode(vs ,INPUT); 
+  Blynk.begin(auth, ssid, pass);
+  timer.setInterval(2000L,sensorvalue); 
+  //should run every 1000 milliseconds, (which is 1 second). 
+  sampling_period_us = round(1000000*(1.0/samplingFrequency));
+}
+
+//loop function
+void loop()
+{
+  Blynk.run();
+  timer.run();
+}
+
+//V0 for vibration
+//V1 for loudness
+//V2 for latitude
+//V3 for longitude
+//V4 for frequency
+void sensorvalue()
+{
+  long measureL =loudness();
+  Serial.println("Loudness: "+ measureL);
+  Blynk.virtualWrite(V1, measureL);
+  if( measureL>90 ){
+  Blynk.notify("Loudness is HIGH!!"); 
+  }
+
+  long measurement =frequency();
+  //Serial.println(measurement);
+  sdata = sdata + "Frequency: " + measurement;  
+  Blynk.virtualWrite(V4, sdata);
+  sdata = ""; 
+//  Serial.println("LAT: "+ latitude, 6);  // float to x decimal places
+//  Serial.println("LONG: "+ longitude, 6);
+//  Blynk.virtualWrite(V2, String(latitude, 6));
+//  Blynk.virtualWrite(V3, String(longitude, 6));
+//  myMap.location(move_index, latitude, longitude, "GPS_Location");
+  
+  long measureV = vibration();
+  Serial.println("Vibration: "+ measureV);
+ if ( measureV==0 ){
+  data=0;
+   Blynk.virtualWrite(V0, data);
+ }
+ if( 0 < measureV < 500){
+   data=1;
+   Blynk.virtualWrite(V0, data);
+ }
+ if( 500 <= measureV < 1000){
+   data=2;
+   Blynk.virtualWrite(V0, data);
+ }
+ if( 1000 <= measureV < 1500){
+   data=3;
+   Blynk.virtualWrite(V0, data);
+ }
+ if( 1500 <= measureV < 2000){
+   data=4;
+   Blynk.virtualWrite(V0, data);
+ }
+ if( measureV >= 4000) {
+   data=5;
+   Blynk.notify("Harmful Bass Level!!");
+   Blynk.virtualWrite(V0, data);
+ }
+ 
+}
+
+long vibration(){
+  long measurement=pulseIn (vs, HIGH);  //wait for the pin to go HIGH and returns measurement
+  return measurement;
+}
+
+//
+double frequency(){
+for (int i = 0; i < samples; i++)
+{
+  microseconds = micros();    //Overflows after around 70 minutes!
+        vReal[i] = analogRead(0);
+        vImag[i] = 0;
+        //Imaginary part must be zeroed in case of looping to avoid wrong calculations and overflows
+        while(micros() < (microseconds + sampling_period_us)){
+        }
+}
+
+FFT.Windowing(vReal, samples, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+FFT.Compute(vReal, vImag, samples, FFT_FORWARD);
+FFT.ComplexToMagnitude(vReal, vImag, samples);
+double x = FFT.MajorPeak(vReal, samples, samplingFrequency);
+Serial.print("Freq:");Serial.println(x, 6);
+return x;
+}
+
+int loudness()
+{ 
+   unsigned long startMillis= millis();                   // Start of sample window
+   float peakToPeak = 0;                                  // peak-to-peak level
+ 
+   unsigned int signalMax = 0;                            //minimum value
+   unsigned int signalMin = 1024;                         //maximum value
+ 
+                                                          // collect data for 50 mS
+   while (millis() - startMillis < sampleWindow)
+   {
+      sample = analogRead(SENSOR_PIN);                    //get reading from microphone
+      if (sample < 1024)                                  // toss out spurious readings
+      {
+         if (sample > signalMax)
+         {
+            signalMax = sample;                           // save just the max levels
+         }
+         else if (sample < signalMin)
+         {
+            signalMin = sample;                           // save just the min levels
+         }
+      }
+   }
+ 
+   peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
+   int db = map(peakToPeak,20,1023,49.5,100);             //calibrate for deciBels
+     return db;
+}
